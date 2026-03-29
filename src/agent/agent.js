@@ -94,6 +94,35 @@ export class Agent {
             console.log(this.name, 'logged in!');
             serverProxy.login();
             
+            // --- ANTI-NAN CRASH SAFEGUARD ---
+            // Intercepts broken knockback math before it reaches the server
+            const originalWrite = this.bot._client.write.bind(this.bot._client);
+            this.bot._client.write = (name, params) => {
+                if (name === 'position' || name === 'position_look' || name === 'look') {
+                    // Check if any physics calculation resulted in 'Not a Number'
+                    const hasNaN = (
+                        (params.x !== undefined && isNaN(params.x)) ||
+                        (params.y !== undefined && isNaN(params.y)) ||
+                        (params.z !== undefined && isNaN(params.z)) ||
+                        (params.yaw !== undefined && isNaN(params.yaw)) ||
+                        (params.pitch !== undefined && isNaN(params.pitch))
+                    );
+
+                    if (hasNaN) {
+                        console.log(`[Anti-Crash] Blocked invalid ${name} packet (NaN) from knockback!`);
+                        
+                        // Kill the broken momentum so it doesn't stay in a crash loop
+                        if (this.bot.entity && this.bot.entity.velocity) {
+                            this.bot.entity.velocity.set(0, 0, 0); 
+                        }
+                        return; // Abort sending the illegal packet to the server!
+                    }
+                }
+                // If the math is fine, send the movement packet normally
+                originalWrite(name, params);
+            };
+            // -------------------------------------------------
+
             // Set skin for profile, requires Fabric Tailor. (https://modrinth.com/mod/fabrictailor)
             if (this.prompter.profile.skin)
                 this.bot.chat(`/skin set URL ${this.prompter.profile.skin.model} ${this.prompter.profile.skin.path}`);
