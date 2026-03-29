@@ -90,7 +90,7 @@ export class Agent {
             serverProxy.login();
             
             // --- ANTI-NAN CRASH SAFEGUARD ---
-            let lastGoodPos = { x: 0, y: 0, z: 0 }; // Memory for the rewind
+            let lastGoodState = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }; // Added yaw and pitch
 
             const originalWrite = this.bot._client.write.bind(this.bot._client);
             this.bot._client.write = (name, params) => {
@@ -104,21 +104,31 @@ export class Agent {
                     );
 
                     if (hasNaN) {
-                        console.log(`[Anti-Crash] Blocked invalid ${name} packet and rewinding position!`);
+                        // Cure the NaN infection by reverting BOTH position and camera angles!
                         if (this.bot.entity) {
                             if (this.bot.entity.velocity) {
                                 this.bot.entity.velocity.set(0, 0, 0); 
                             }
                             if (this.bot.entity.position) {
-                                this.bot.entity.position.set(lastGoodPos.x, lastGoodPos.y, lastGoodPos.z);
+                                this.bot.entity.position.set(lastGoodState.x, lastGoodState.y, lastGoodState.z);
                             }
+                            // Snap the camera back to reality
+                            this.bot.entity.yaw = lastGoodState.yaw;
+                            this.bot.entity.pitch = lastGoodState.pitch;
                         }
-                        return; // Abort sending
+                        return; // Abort sending the illegal packet!
                     } else {
-                        if (this.bot.entity && this.bot.entity.position && !isNaN(this.bot.entity.position.x)) {
-                            lastGoodPos.x = this.bot.entity.position.x;
-                            lastGoodPos.y = this.bot.entity.position.y;
-                            lastGoodPos.z = this.bot.entity.position.z;
+                        // If the math is good, save this location and camera angle as our backup!
+                        if (this.bot.entity) {
+                            if (this.bot.entity.position && !isNaN(this.bot.entity.position.x)) {
+                                lastGoodState.x = this.bot.entity.position.x;
+                                lastGoodState.y = this.bot.entity.position.y;
+                                lastGoodState.z = this.bot.entity.position.z;
+                            }
+                            if (!isNaN(this.bot.entity.yaw) && !isNaN(this.bot.entity.pitch)) {
+                                lastGoodState.yaw = this.bot.entity.yaw;
+                                lastGoodState.pitch = this.bot.entity.pitch;
+                            }
                         }
                     }
                 }
