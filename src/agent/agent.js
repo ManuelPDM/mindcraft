@@ -94,12 +94,11 @@ export class Agent {
             console.log(this.name, 'logged in!');
             serverProxy.login();
             
-            // --- ANTI-NAN CRASH SAFEGUARD ---
-            // Intercepts broken knockback math before it reaches the server
+            let lastGoodPos = { x: 0, y: 0, z: 0 }; // Memory for the rewind
+
             const originalWrite = this.bot._client.write.bind(this.bot._client);
             this.bot._client.write = (name, params) => {
                 if (name === 'position' || name === 'position_look' || name === 'look') {
-                    // Check if any physics calculation resulted in 'Not a Number'
                     const hasNaN = (
                         (params.x !== undefined && isNaN(params.x)) ||
                         (params.y !== undefined && isNaN(params.y)) ||
@@ -109,16 +108,28 @@ export class Agent {
                     );
 
                     if (hasNaN) {
-                        console.log(`[Anti-Crash] Blocked invalid ${name} packet (NaN) from knockback!`);
+                        console.log(`[Anti-Crash] Blocked invalid ${name} packet and rewinding position!`);
                         
-                        // Kill the broken momentum so it doesn't stay in a crash loop
-                        if (this.bot.entity && this.bot.entity.velocity) {
-                            this.bot.entity.velocity.set(0, 0, 0); 
+                        // Cure the NaN infection by reverting to the last known good numbers
+                        if (this.bot.entity) {
+                            if (this.bot.entity.velocity) {
+                                this.bot.entity.velocity.set(0, 0, 0); 
+                            }
+                            if (this.bot.entity.position) {
+                                // Rewind the bot to safety so gravity works again
+                                this.bot.entity.position.set(lastGoodPos.x, lastGoodPos.y, lastGoodPos.z);
+                            }
                         }
-                        return; // Abort sending the illegal packet to the server!
+                        return; // Abort sending the illegal packet!
+                    } else {
+                        // If the math is good, save this location as our backup!
+                        if (this.bot.entity && this.bot.entity.position && !isNaN(this.bot.entity.position.x)) {
+                            lastGoodPos.x = this.bot.entity.position.x;
+                            lastGoodPos.y = this.bot.entity.position.y;
+                            lastGoodPos.z = this.bot.entity.position.z;
+                        }
                     }
                 }
-                // If the math is fine, send the movement packet normally
                 originalWrite(name, params);
             };
             // -------------------------------------------------
